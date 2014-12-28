@@ -1,6 +1,8 @@
 #include "openssl_fdh.h"
 
+#include <assert.h>
 #include <stdbool.h>
+#include <string.h>
 #include <openssl/evp.h>
 #include <openssl/rsa.h>
 
@@ -51,21 +53,23 @@ size_t openssl_fdh_sign(const uint8_t *data, size_t data_len,
 }
 
 /*!
- * Compute Full Domain Hash.
+ * Verify Full Domain Hash.
  */
 bool openssl_fdh_verify(const uint8_t *data, size_t data_len,
-			uint8_t *sign, size_t sign_len,
+			const uint8_t *sign, size_t sign_len,
 			RSA *key, const EVP_MD *hash)
 {
-	if (!data || !key || !sign || !hash || sign_len < RSA_size(key)) {
-		return 0;
+	if (!data || !key || !sign || !hash || sign_len != RSA_size(key)) {
+		return false;
 	}
 
-	// compute MGF1 mask, use the same size as RSA modulo
+	size_t len = RSA_size(key);
+	assert(len == BN_num_bytes(key->n));
 
-	size_t mask_len = BN_num_bytes(key->n);
-	uint8_t mask[mask_len];
-	if (PKCS1_MGF1(mask, mask_len, data, data_len, hash) != 0) {
+	// compute MGF1 mask
+
+	uint8_t mask[len];
+	if (PKCS1_MGF1(mask, len, data, data_len, hash) != 0) {
 		return 0;
 	}
 
@@ -73,14 +77,15 @@ bool openssl_fdh_verify(const uint8_t *data, size_t data_len,
 
 	mask[0] &= 0x7f;
 
-	// preform raw RSA signature
+	// reverse RSA signature
 
-	int r = -10;
-//	int r = RSA_private_decrypt();
-//	int r = RSA_private_encrypt(mask_len, mask, sign, key, RSA_NO_PADDING);
+	uint8_t decrypted[len];
+	int r = RSA_public_decrypt(len, sign, decrypted, key, RSA_NO_PADDING);
 	if (r < 0) {
-		return 0;
+		return false;
 	}
 
-	return r;
+	// compare the result
+
+	return (r == len && memcmp(decrypted, mask, len) == 0);
 }
