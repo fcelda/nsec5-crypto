@@ -31,15 +31,12 @@ size_t openssl_fdh_sign(const uint8_t *data, size_t data_len,
 
 	size_t out_len = BN_num_bytes(key->n);
 
-	// compute MGF1 mask, use the same size as RSA modulo
+	// compute MGF1 mask, clear the highest bit
 
 	uint8_t mask[out_len];
 	if (PKCS1_MGF1(mask, out_len, data, data_len, hash) != 0) {
 		return 0;
 	}
-
-	// clear the highest bit of the mask
-
 	mask[0] &= 0x7f;
 
 	// preform raw RSA signature
@@ -66,15 +63,12 @@ bool openssl_fdh_verify(const uint8_t *data, size_t data_len,
 	size_t len = RSA_size(key);
 	assert(len == BN_num_bytes(key->n));
 
-	// compute MGF1 mask
+	// compute MGF1 mask, clear the highest bit
 
 	uint8_t mask[len];
 	if (PKCS1_MGF1(mask, len, data, data_len, hash) != 0) {
 		return 0;
 	}
-
-	// clear the highest bit of the mask
-
 	mask[0] &= 0x7f;
 
 	// reverse RSA signature
