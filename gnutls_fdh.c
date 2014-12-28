@@ -2,13 +2,80 @@
 #include "gnutls_mgf.h"
 
 #include <assert.h>
-#include <stdint.h>
-#include <stdlib.h>
 #include <nettle/bignum.h>
-
-#include <stdbool.h>
-#include <stdio.h>
 #include <gnutls/abstract.h>
+#include <string.h>
+
+/*!
+ * Get size of Full Domain Hash result.
+ */
+size_t nettle_fdh_len(const struct rsa_public_key *key)
+{
+	return key ? key->size : 0;
+}
+
+size_t nettle_fdh_sign(const uint8_t *data, size_t data_len,
+		       uint8_t *sign, size_t sign_len,
+		       const struct rsa_public_key *pubkey,
+		       const struct rsa_private_key *privkey,
+		       const struct nettle_hash *hash)
+{
+	if (!data || !pubkey || !privkey || !sign || !hash || sign_len < pubkey->size) {
+		return 0;
+	}
+
+	size_t len = pubkey->size;
+
+	// compute MGF1 mask, clear the highest bit
+
+	uint8_t mask[len];
+	mgf_nettle(mask, sizeof(mask), data, data_len, hash);
+	mask[0] &= 0x7f;
+
+	// preform raw RSA encryption
+
+	mpz_t sign_mpz;
+	nettle_mpz_init_set_str_256_u(sign_mpz, len, mask);
+	mpz_powm(sign_mpz, sign_mpz, privkey->d, pubkey->n);
+	nettle_mpz_get_str_256(len, sign, sign_mpz);
+	mpz_clear(sign_mpz);
+
+	return len;
+}
+
+/*!
+ * Verify Full Domain Hash.
+ */
+bool nettle_fdh_verify(const uint8_t *data, size_t data_len,
+		       const uint8_t *sign, size_t sign_len,
+		       const struct rsa_public_key *pubkey,
+		       const struct nettle_hash *hash)
+{
+	if (!data || !sign || !pubkey || !hash || sign_len != pubkey->size) {
+		return false;
+	}
+
+	size_t len = pubkey->size;
+
+	// compute MGF1 mask, clear the highest bit
+
+	uint8_t mask[len];
+	mgf_nettle(mask, len, data, data_len, hash);
+	mask[0] &= 0x7f;
+
+	// preform raw RSA decryption
+
+	uint8_t decrypted[len];
+	mpz_t decrypted_mpz;
+	nettle_mpz_init_set_str_256_u(decrypted_mpz, sign_len, sign);
+	mpz_powm(decrypted_mpz, decrypted_mpz, pubkey->e, pubkey->n);
+	nettle_mpz_get_str_256(len, decrypted, decrypted_mpz);
+	mpz_clear(decrypted_mpz);
+
+	// compare the result
+
+	return memcmp(decrypted, mask, len) == 0;
+}
 
 static void cleanup_datum(gnutls_datum_t *datum)
 {
@@ -20,7 +87,7 @@ static void cleanup_datum(gnutls_datum_t *datum)
 /*!
  * Convert GnuTLS RSA private key into Nettle RSA key.
  */
-static bool key_g2n(const gnutls_x509_privkey_t key,
+static bool privkey_g2n(gnutls_x509_privkey_t key,
 		    struct rsa_public_key *public_key,
 		    struct rsa_private_key *private_key)
 {
@@ -67,6 +134,39 @@ static bool key_g2n(const gnutls_x509_privkey_t key,
 }
 
 /*!
+ * Convert GnuTLs public key to Nettle RSA public key
+ */
+static bool pubkey_g2n(gnutls_pubkey_t key,
+		       struct rsa_public_key *public_key)
+{
+	// export RSA public parameters
+
+	auto_gnutls_datum_t m = { 0 };
+	auto_gnutls_datum_t e = { 0 };
+
+	int r = gnutls_pubkey_export_rsa_raw(key, &m, &e);
+	if (r != GNUTLS_E_SUCCESS) {
+		return false;
+	}
+
+	// import into Nettle structure
+
+	struct rsa_public_key pub = { 0 };
+	nettle_mpz_init_set_str_256_u(pub.n, m.size, m.data);
+	nettle_mpz_init_set_str_256_u(pub.e, e.size, e.data);
+	if (nettle_rsa_public_key_prepare(&pub) != 1) {
+		nettle_rsa_public_key_clear(&pub);
+		return false;
+	}
+
+	// asign the result
+
+	*public_key = pub;
+
+	return true;
+}
+
+/*!
  * Convert GnuTLS digest algorithm to Nettle hash abstraction.
  */
 static const struct nettle_hash *hash_g2n(gnutls_digest_algorithm_t digest)
@@ -85,45 +185,6 @@ static const struct nettle_hash *hash_g2n(gnutls_digest_algorithm_t digest)
 	};
 }
 
-/*!
- * Get size of Full Domain Hash result.
- */
-size_t nettle_fdh_len(const struct rsa_public_key *key)
-{
-	return key ? key->size : 0;
-}
-
-size_t nettle_fdh_sign(const uint8_t *data, size_t data_len,
-		       uint8_t *sign, size_t sign_len,
-		       const struct rsa_public_key *pubkey,
-		       const struct rsa_private_key *privkey,
-		       const struct nettle_hash *hash)
-{
-	if (!data || !pubkey || !privkey || !sign || !hash || sign_len < pubkey->size) {
-		return 0;
-	}
-
-	size_t out_len = pubkey->size;
-
-	// compute MGF1 mask, use the same size as RSA modulo
-
-	uint8_t mask[out_len];
-	mgf_nettle(mask, out_len, data, data_len, &nettle_sha256);
-
-	// clear the highest bit of the mask
-
-	mask[0] &= 0x7f;
-
-	// preform raw RSA signature
-
-	mpz_t sign_mpz;
-	nettle_mpz_init_set_str_256_u(sign_mpz, out_len, mask);
-	mpz_powm(sign_mpz, sign_mpz, privkey->d, pubkey->n);
-	nettle_mpz_get_str_256(out_len, sign, sign_mpz);
-	mpz_clear(sign_mpz);
-
-	return out_len;
-}
 
 size_t gnutls_fdh_len(gnutls_x509_privkey_t key)
 {
@@ -151,7 +212,7 @@ size_t gnutls_fdh_sign(const uint8_t *data, size_t data_len,
 		return 0;
 	}
 
-	if (!key_g2n(key, &pubkey, &privkey)) {
+	if (!privkey_g2n(key, &pubkey, &privkey)) {
 		return 0;
 	}
 
@@ -159,6 +220,29 @@ size_t gnutls_fdh_sign(const uint8_t *data, size_t data_len,
 
 	rsa_public_key_clear(&pubkey);
 	rsa_private_key_clear(&privkey);
+
+	return r;
+}
+
+bool gnutls_fdh_verify(const uint8_t *data, size_t data_len,
+		       const uint8_t *sign, size_t sign_len,
+		       gnutls_pubkey_t key,
+		       gnutls_digest_algorithm_t digest)
+{
+	struct rsa_public_key pubkey = { 0 };
+
+	const struct nettle_hash *hash = hash_g2n(digest);
+	if (!hash) {
+		return 0;
+	}
+
+	if (!pubkey_g2n(key, &pubkey)) {
+		return 0;
+	}
+
+	bool r = nettle_fdh_verify(data, data_len, sign, sign_len, &pubkey, hash);
+
+	rsa_public_key_clear(&pubkey);
 
 	return r;
 }
