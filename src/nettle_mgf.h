@@ -2,7 +2,6 @@
 
 #include <stdint.h>
 #include <stdlib.h>
-#include <nettle/nettle-meta.h>
 
 /*!
  * MGF1, Mask Generation Function based on a hash function.
