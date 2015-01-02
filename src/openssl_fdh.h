@@ -23,7 +23,7 @@ size_t openssl_fdh_len(RSA *key);
  *
  * \return Size of the Full Domain Hash, zero on error.
  */
-size_t openssl_fdh_sign(const uint8_t *seed, size_t seed_len,
+size_t openssl_fdh_sign(const uint8_t *data, size_t data_len,
 			uint8_t *sign, size_t sign_len,
 			RSA *key, const EVP_MD *hash);
 
