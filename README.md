@@ -6,7 +6,7 @@ The implementation covers following libraries:
 
 - OpenSSL
 - Nettle
-- and GnuTLS (3.0 or newer)
+- GnuTLS (3.0 or newer)
 
 ## Quick Start
 
@@ -45,7 +45,7 @@ $ make demo_openssl openssl_FLAGS="-I/usr/local/include -L/usr/local/lib64 -lcry
 cc -std=gnu99 -Wall -g -O2 -Icrypto -I/usr/local/include -L/usr/local/lib64 -lcrypto -o demo_openssl demo/main.c demo/openssl.c crypto/openssl_fdh.c
 ```
 
-The demo program takes a name of hash function, private RSA key in PEM format, and input from the command line. The input is then signed and verified:
+The demo program takes a name of a hash function, a private RSA key in PEM format, and input from the command line. The input is then signed and verified:
 
 ```
 $ ./demo_gnutls sha1 key_1024.pem teststring
