@@ -2,11 +2,13 @@
 
 This repository contains **sample implementation** of cryptographic functions required for NSEC5.
 
-The implementation covers following libraries:
+NSEC5 is a recently proposed mechanism for authenticated denial of existence in DNSSEC, which prevents zone enumeration.
 
-- OpenSSL
-- Nettle
-- GnuTLS (3.0 or newer)
+The sample implementation covers following libraries:
+
+- [OpenSSL](http://openssl.org/)
+- [Nettle](http://www.lysator.liu.se/~nisse/nettle/)
+- [GnuTLS](http://gnutls.org/) (3.0 or newer)
 
 ## Quick Start
 
@@ -65,7 +67,7 @@ f8 d1 df c4 e0 47 8e 95 2b 0f 4d 0c 4c bb 83 91
 succeeded
 ```
 
-To generate a new RSA key, the utilities supplied with OpenSSL or GnuTLS can be used:
+To generate a new RSA key, utilities supplied with OpenSSL or GnuTLS can be used:
 
 ```
 (openssl)$ openssl genrsa 2048 > key.pem
@@ -74,7 +76,7 @@ To generate a new RSA key, the utilities supplied with OpenSSL or GnuTLS can be 
 
 ## Rerefences
 
-TBD
+- [NSEC5 Project Page](http://www.cs.bu.edu/~goldbe/papers/nsec5.html)
 
 ## License
 
