@@ -1,8 +1,9 @@
 #include <assert.h>
-#include <nettle/nettle-meta.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+
+#include <nettle/nettle-meta.h>
 
 #define MIN(a,b) \
 	({ typeof(a) _a = (a); typeof(b) _b = (b); _a < _b ? _a : _b; })

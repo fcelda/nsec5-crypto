@@ -8,7 +8,6 @@
 #include <nettle/nettle-meta.h>
 #include <nettle/rsa.h>
 
-
 static void cleanup_datum(gnutls_datum_t *datum)
 {
 	gnutls_free(datum->data);
