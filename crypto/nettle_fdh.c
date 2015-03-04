@@ -1,11 +1,29 @@
 #include "nettle_fdh.h"
 #include "nettle_mgf.h"
 
+#include <assert.h>
 #include <string.h>
 
 #include <nettle/bignum.h>
 #include <nettle/nettle-meta.h>
 #include <nettle/rsa.h>
+
+/*!
+ * Write mpz_t on fixed width, the empty low is filled with zero bytes.
+ */
+static void write_mpz(uint8_t *buffer, size_t buffer_len, const mpz_t value)
+{
+	assert(buffer);
+
+	unsigned int value_len = nettle_mpz_sizeinbase_256_u(value);
+	if (value_len > buffer_len) {
+		return;
+	}
+
+	unsigned int zeroes = buffer_len - value_len;
+	memset(buffer, 0, zeroes);
+	nettle_mpz_get_str_256(value_len, buffer + zeroes, value);
+}
 
 /*!
  * Get size of Full Domain Hash result.
@@ -25,23 +43,20 @@ size_t nettle_fdh_sign(const uint8_t *data, size_t data_len,
 		return 0;
 	}
 
-	size_t len = pubkey->size;
+	// compute MGF1 mask
 
-	// compute MGF1 mask, clear the highest bit
-
-	uint8_t mask[len];
+	uint8_t mask[pubkey->size - 1];
 	mgf_nettle(mask, sizeof(mask), data, data_len, hash);
-	mask[0] &= 0x7f;
 
 	// preform raw RSA encryption
 
 	mpz_t sign_mpz;
-	nettle_mpz_init_set_str_256_u(sign_mpz, len, mask);
+	nettle_mpz_init_set_str_256_u(sign_mpz, sizeof(mask), mask);
 	mpz_powm(sign_mpz, sign_mpz, privkey->d, pubkey->n);
-	nettle_mpz_get_str_256(len, sign, sign_mpz);
+	write_mpz(sign, sign_len, sign_mpz);
 	mpz_clear(sign_mpz);
 
-	return len;
+	return sign_len;
 }
 
 /*!
@@ -56,24 +71,19 @@ bool nettle_fdh_verify(const uint8_t *data, size_t data_len,
 		return false;
 	}
 
-	size_t len = pubkey->size;
+	// compute MGF1 mask
 
-	// compute MGF1 mask, clear the highest bit
-
-	uint8_t mask[len];
-	mgf_nettle(mask, len, data, data_len, hash);
-	mask[0] &= 0x7f;
+	uint8_t mask[pubkey->size - 1];
+	mgf_nettle(mask, sizeof(mask), data, data_len, hash);
 
 	// preform raw RSA decryption
 
-	uint8_t decrypted[len];
+	uint8_t decrypted[sign_len];
 	mpz_t decrypted_mpz;
 	nettle_mpz_init_set_str_256_u(decrypted_mpz, sign_len, sign);
 	mpz_powm(decrypted_mpz, decrypted_mpz, pubkey->e, pubkey->n);
-	nettle_mpz_get_str_256(len, decrypted, decrypted_mpz);
-	mpz_clear(decrypted_mpz);
+	write_mpz(decrypted, sizeof(decrypted), decrypted_mpz);
 
-	// compare the result
-
-	return memcmp(decrypted, mask, len) == 0;
+	return (sizeof(mask) + 1) == sizeof(decrypted) && decrypted[0] == 0 &&
+	       memcmp(decrypted + 1, mask, sizeof(mask)) == 0;
 }

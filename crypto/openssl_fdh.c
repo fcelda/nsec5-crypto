@@ -30,19 +30,17 @@ size_t openssl_fdh_sign(const uint8_t *data, size_t data_len,
 		return 0;
 	}
 
-	size_t out_len = BN_num_bytes(key->n);
+	// compute MGF1 mask
 
-	// compute MGF1 mask, clear the highest bit
-
-	uint8_t mask[out_len];
-	if (PKCS1_MGF1(mask, out_len, data, data_len, hash) != 0) {
+	uint8_t mask[BN_num_bytes(key->n)];
+	mask[0] = 0;
+	if (PKCS1_MGF1(mask + 1, sizeof(mask) - 1, data, data_len, hash) != 0) {
 		return 0;
 	}
-	mask[0] &= 0x7f;
 
 	// preform raw RSA signature
 
-	int r = RSA_private_encrypt(out_len, mask, sign, key, RSA_NO_PADDING);
+	int r = RSA_private_encrypt(sizeof(mask), mask, sign, key, RSA_NO_PADDING);
 	if (r < 0) {
 		return 0;
 	}
@@ -61,26 +59,24 @@ bool openssl_fdh_verify(const uint8_t *data, size_t data_len,
 		return false;
 	}
 
-	size_t len = RSA_size(key);
-	assert(len == BN_num_bytes(key->n));
+	// compute MGF1 mask
 
-	// compute MGF1 mask, clear the highest bit
-
-	uint8_t mask[len];
-	if (PKCS1_MGF1(mask, len, data, data_len, hash) != 0) {
-		return 0;
+	uint8_t mask[BN_num_bytes(key->n)];
+	mask[0] = 0;
+	if (PKCS1_MGF1(mask + 1, sizeof(mask) - 1, data, data_len, hash) != 0) {
+		return false;
 	}
-	mask[0] &= 0x7f;
 
 	// reverse RSA signature
 
-	uint8_t decrypted[len];
-	int r = RSA_public_decrypt(len, sign, decrypted, key, RSA_NO_PADDING);
-	if (r < 0) {
+	uint8_t decrypted[sign_len];
+	int r = RSA_public_decrypt(sign_len, sign, decrypted, key, RSA_NO_PADDING);
+	if (r < 0 || r != sign_len) {
 		return false;
 	}
 
 	// compare the result
 
-	return (r == len && memcmp(decrypted, mask, len) == 0);
+	return sizeof(mask) == sizeof(decrypted) &&
+	       memcmp(mask, decrypted, sizeof(mask)) == 0;
 }
