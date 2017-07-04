@@ -78,8 +78,11 @@ static EC_POINT *ECVRF_hash_to_curve1(const EC_GROUP *group, const EC_POINT *pub
 		return NULL;
 	}
 
-	EVP_MD_CTX md;
-	EVP_MD_CTX_init(&md);
+	EVP_MD_CTX *md = EVP_MD_CTX_new();
+	if (!md) {
+		BN_clear_free(cofactor);
+		return NULL;
+	}
 
 	bool cofactor_positive = !BN_is_negative(cofactor) && !BN_is_zero(cofactor);
 
@@ -91,11 +94,11 @@ static EC_POINT *ECVRF_hash_to_curve1(const EC_GROUP *group, const EC_POINT *pub
 		uint8_t hash[EVP_MAX_MD_SIZE] = {0};
 		unsigned hash_size = sizeof(hash);
 
-		EVP_DigestInit_ex(&md, EVP_sha256(), NULL);
-		EVP_DigestUpdate(&md, _pubkey, sizeof(_pubkey));
-		EVP_DigestUpdate(&md, data, size);
-		EVP_DigestUpdate(&md, &counter, sizeof(counter));
-		if (EVP_DigestFinal_ex(&md, hash, &hash_size) != 1) {
+		EVP_DigestInit_ex(md, EVP_sha256(), NULL);
+		EVP_DigestUpdate(md, _pubkey, sizeof(_pubkey));
+		EVP_DigestUpdate(md, data, size);
+		EVP_DigestUpdate(md, &counter, sizeof(counter));
+		if (EVP_DigestFinal_ex(md, hash, &hash_size) != 1) {
 			EC_POINT_clear_free(result);
 			result = NULL;
 			break;
@@ -116,7 +119,7 @@ static EC_POINT *ECVRF_hash_to_curve1(const EC_GROUP *group, const EC_POINT *pub
 	}
 
 	BN_clear_free(cofactor);
-	EVP_MD_CTX_cleanup(&md);
+	EVP_MD_CTX_free(md);
 
 	return result;
 }
@@ -128,28 +131,30 @@ static BIGNUM *ECVRF_hash_points(const EC_GROUP *group, const EC_POINT **points,
 {
 	BIGNUM *result = NULL;
 
-	EVP_MD_CTX md;
-	EVP_MD_CTX_init(&md);
-	EVP_DigestInit_ex(&md, EVP_sha256(), NULL);
+	EVP_MD_CTX *md = EVP_MD_CTX_new();
+	if (!md) {
+		return NULL;
+	}
+	EVP_DigestInit_ex(md, EVP_sha256(), NULL);
 
 	for (size_t i = 0; i < count; i++) {
 		uint8_t buffer[33];
 		if (EC_POINT_point2oct(group, points[i], POINT_CONVERSION_COMPRESSED, buffer, sizeof(buffer), NULL) != sizeof(buffer)) {
 			goto fail;
 		}
-		EVP_DigestUpdate(&md, buffer, sizeof(buffer));
+		EVP_DigestUpdate(md, buffer, sizeof(buffer));
 	}
 
 	uint8_t hash[EVP_MAX_MD_SIZE] = {0};
 	unsigned hash_size = sizeof(hash);
-	if (EVP_DigestFinal_ex(&md, hash, &hash_size) != 1) {
+	if (EVP_DigestFinal_ex(md, hash, &hash_size) != 1) {
 		goto fail;
 	}
 
 	assert(hash_size >= 16);
 	result = BN_bin2bn(hash, 16, NULL);
 fail:
-	EVP_MD_CTX_cleanup(&md);
+	EVP_MD_CTX_free(md);
 
 	return result;
 }
