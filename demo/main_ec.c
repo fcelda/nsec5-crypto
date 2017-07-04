@@ -37,6 +37,23 @@ static void bn2bin(const BIGNUM *num, uint8_t *buf, size_t size)
 }
 
 /**
+ * BN_mod_mul without context.
+ */
+static int bn_mod_mul(BIGNUM *r, const BIGNUM *a, const BIGNUM *b, const BIGNUM *m)
+{
+	BN_CTX *ctx = BN_CTX_new();
+	if (!ctx) {
+		return 0;
+	}
+
+	int ret = BN_mod_mul(r, a, b, m, ctx);
+
+	BN_CTX_free(ctx);
+
+	return ret;
+}
+
+/**
  * Try converting random string to EC point.
  *
  * @return EC point or NULL if the random string cannot be interpreted as an EC point.
@@ -230,15 +247,12 @@ static bool ECVRF_prove(
 	}
 
 	cx = BN_new();
-	BN_CTX *ctx = BN_CTX_new();
-	if (BN_mod_mul(cx, c, privkey, order, ctx) != 1) {
-		BN_CTX_free(ctx);
+	if (bn_mod_mul(cx, c, privkey, order) != 1) {
 		goto fail;
 	}
-	BN_CTX_free(ctx);
 
 	s = BN_new();
-	if (BN_mod_sub(s, nonce, cx, order, ctx) != 1) {
+	if (BN_mod_sub(s, nonce, cx, order, NULL) != 1) {
 		goto fail;
 	}
 
