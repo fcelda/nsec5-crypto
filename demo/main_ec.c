@@ -90,30 +90,30 @@ static EC_POINT *ECVRF_hash_to_curve1(const EC_GROUP *group, const EC_POINT *pub
 
 	EC_POINT *result = NULL;
 
-	BIGNUM *cofactor = BN_new();
-	if (EC_GROUP_get_cofactor(group, cofactor, NULL) != 1) {
+	EVP_MD_CTX *md_template = EVP_MD_CTX_new();
+	if (!md_template) {
 		return NULL;
 	}
+	EVP_DigestInit_ex(md_template, EVP_sha256(), NULL);
+	EVP_DigestUpdate(md_template, _pubkey, sizeof(_pubkey));
+	EVP_DigestUpdate(md_template, data, size);
 
 	EVP_MD_CTX *md = EVP_MD_CTX_new();
 	if (!md) {
-		BN_clear_free(cofactor);
+		EVP_MD_CTX_free(md_template);
 		return NULL;
 	}
 
-	bool cofactor_positive = !BN_is_negative(cofactor) && !BN_is_zero(cofactor);
-
-	for (int _counter = 0; result == NULL || EC_POINT_is_at_infinity(group, result); _counter++) {
-		assert(_counter < 256);
+	for (uint32_t _counter = 0; result == NULL || EC_POINT_is_at_infinity(group, result); _counter++) {
+		assert(_counter < 256); // hard limit for debugging
 		uint32_t counter = htonl(_counter);
-		static_assert(sizeof(counter) == 4, "counter is 4-bit");
+		static_assert(sizeof(counter) == 4, "counter is 4-byte");
 
 		uint8_t hash[EVP_MAX_MD_SIZE] = {0};
 		unsigned hash_size = sizeof(hash);
 
 		EVP_DigestInit_ex(md, EVP_sha256(), NULL);
-		EVP_DigestUpdate(md, _pubkey, sizeof(_pubkey));
-		EVP_DigestUpdate(md, data, size);
+		EVP_MD_CTX_copy_ex(md, md_template);
 		EVP_DigestUpdate(md, &counter, sizeof(counter));
 		if (EVP_DigestFinal_ex(md, hash, &hash_size) != 1) {
 			EC_POINT_clear_free(result);
@@ -121,8 +121,11 @@ static EC_POINT *ECVRF_hash_to_curve1(const EC_GROUP *group, const EC_POINT *pub
 			break;
 		}
 
+		// perform multiplication with cofactor if cofactor is > 1
+		const BIGNUM *cofactor = EC_GROUP_get0_cofactor(group);
+		assert(cofactor);
 		result = RS2ECP(group, hash, hash_size);
-		if (result != NULL && cofactor_positive) {
+		if (result != NULL && !BN_is_one(cofactor)) {
 			EC_POINT *tmp = EC_POINT_new(group);
 			if (EC_POINT_mul(group, tmp, NULL, result, cofactor, NULL) != 1) {
 				EC_POINT_clear_free(tmp);
@@ -135,8 +138,8 @@ static EC_POINT *ECVRF_hash_to_curve1(const EC_GROUP *group, const EC_POINT *pub
 		}
 	}
 
-	BN_clear_free(cofactor);
 	EVP_MD_CTX_free(md);
+	EVP_MD_CTX_free(md_template);
 
 	return result;
 }
@@ -198,12 +201,13 @@ static bool ECVRF_prove(
 
 	const EC_POINT *generator = EC_GROUP_get0_generator(group);
 	assert(generator);
+	const BIGNUM *order = EC_GROUP_get0_order(group);
+	assert(order);
 
 	EC_POINT *hash = NULL;
 	EC_POINT *gamma = NULL;
 	EC_POINT *g_k = NULL;
 	EC_POINT *h_k = NULL;
-	BIGNUM *order = NULL;
 	BIGNUM *nonce = NULL;
 	BIGNUM *c = NULL;
 	BIGNUM *cx = NULL;
@@ -216,12 +220,6 @@ static bool ECVRF_prove(
 
 	gamma = EC_POINT_new(group);
 	if (EC_POINT_mul(group, gamma, NULL, hash, privkey, NULL) != 1) {
-		goto fail;
-	}
-
-	// FIXME: is this prime order?
-	order = BN_new();
-	if (EC_GROUP_get_order(group, order, NULL) != 1) {
 		goto fail;
 	}
 
@@ -269,13 +267,12 @@ fail:
 	EC_POINT_clear_free(gamma);
 	EC_POINT_clear_free(g_k);
 	EC_POINT_clear_free(h_k);
-	BN_clear_free(order);
 	BN_clear_free(nonce);
 	BN_clear_free(c);
 	BN_clear_free(cx);
 	BN_clear_free(s);
 
-	return true;
+	return result;
 }
 
 static bool ECVRF_decode_proof(
