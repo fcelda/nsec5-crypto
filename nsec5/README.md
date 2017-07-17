@@ -6,7 +6,7 @@ NSEC5 is a recently proposed mechanism for authenticated denial of existence in 
 
 The sample implementation covers following libraries:
 
-- [OpenSSL](http://openssl.org/)
+- [OpenSSL](http://openssl.org/) (1.0)
 - [Nettle](http://www.lysator.liu.se/~nisse/nettle/)
 - [GnuTLS](http://gnutls.org/) (3.0 or newer)
 
@@ -80,4 +80,4 @@ To generate a new RSA key, utilities supplied with OpenSSL or GnuTLS can be used
 
 ## License
 
-TBD
+Apache License 2.0
